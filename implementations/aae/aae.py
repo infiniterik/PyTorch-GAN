@@ -34,11 +34,12 @@ print(opt)
 img_shape = (opt.channels, opt.img_size, opt.img_size)
 
 cuda = True if torch.cuda.is_available() else False
+mps = True if torch.backends.mps.is_available() else False
 
 
 def reparameterization(mu, logvar):
     std = torch.exp(logvar / 2)
-    sampled_z = Variable(Tensor(np.random.normal(0, 1, (mu.size(0), opt.latent_dim))))
+    sampled_z = Variable(Tensor(np.random.normal(0, 1, (mu.size(0), opt.latent_dim))).to('mps'))
     z = sampled_z * std + mu
     return z
 
@@ -114,13 +115,28 @@ encoder = Encoder()
 decoder = Decoder()
 discriminator = Discriminator()
 
+Tensor = torch.FloatTensor
+
 if cuda:
+    print("Cuda")
+    Tensor = torch.cuda.FloatTensor
     encoder.cuda()
     decoder.cuda()
     discriminator.cuda()
     adversarial_loss.cuda()
     pixelwise_loss.cuda()
+elif mps:
+    print("MPS")
+    mps_device = torch.device("mps")
+    encoder.to("mps")
+    decoder.to("mps")
+    discriminator.to("mps")
+    adversarial_loss.to("mps")
+    pixelwise_loss.to("mps")
 
+Tensor = torch.backends.mps.torch.FloatTensor
+
+print("Tensor: ", Tensor)
 # Configure data loader
 os.makedirs("../../data/mnist", exist_ok=True)
 dataloader = torch.utils.data.DataLoader(
@@ -142,13 +158,11 @@ optimizer_G = torch.optim.Adam(
 )
 optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 
-Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
-
 
 def sample_image(n_row, batches_done):
     """Saves a grid of generated digits"""
     # Sample noise
-    z = Variable(Tensor(np.random.normal(0, 1, (n_row ** 2, opt.latent_dim))))
+    z = Variable(Tensor(np.random.normal(0, 1, (n_row ** 2, opt.latent_dim))).to('mps'))
     gen_imgs = decoder(z)
     save_image(gen_imgs.data, "images/%d.png" % batches_done, nrow=n_row, normalize=True)
 
@@ -159,13 +173,16 @@ def sample_image(n_row, batches_done):
 
 for epoch in range(opt.n_epochs):
     for i, (imgs, _) in enumerate(dataloader):
+        imgs.to('mps')
+        _.to('mps')
 
         # Adversarial ground truths
-        valid = Variable(Tensor(imgs.shape[0], 1).fill_(1.0), requires_grad=False)
-        fake = Variable(Tensor(imgs.shape[0], 1).fill_(0.0), requires_grad=False)
+        valid = Variable(Tensor(imgs.shape[0], 1).to('mps').fill_(1.0), requires_grad=False)
+        fake = Variable(Tensor(imgs.shape[0], 1).to('mps').fill_(0.0), requires_grad=False)
+        print(fake.device, valid.device)
 
         # Configure input
-        real_imgs = Variable(imgs.type(Tensor))
+        real_imgs = Variable(imgs.type(Tensor).to('mps'))
 
         # -----------------
         #  Train Generator
